@@ -1,0 +1,530 @@
+%% Nitrogen Generation via PSA
+clear
+set(groot,'defaultLineLineWidth',1.8)
+e=0.4; %voidage
+rhop=960; %kg/m3 particle density
+rhof=8.179; %kg/m3 fluid(air) density
+rhow=997; %kg/m3 water density
+g=9.81; %ms-2 gravitational accelleration
+mu=0.00001837; %Pas fluid viscosity
+sph=0.63589646; %sphericity
+Dp=1.4e-3; %m particle diameter
+yN2in=0.7808;
+yO2in=0.2095;
+yArin=0.0097;
+yN2out=0.9882194558; %mol frac out from 100kmol/hr basis on excel
+yO2out=1e-5;
+yArout=0.0117705442;
+sumyin=yN2in+yO2in+yArin;
+sumyout=yN2out+yO2out+yArout;
+R=8.3145;
+T=303.15; %K
+Pmax=(801325-0.1*101325)/0.9+5.19516; %Pa
+Pmax2=(801325-0.1*101325)/0.9+5195.16; %Pa
+H2=177.0525794; %kmol/hr
+N2req=H2/3;
+N2reqpurge=N2req+((101325*N2req)/(yN2in*Pmax))/(1-101325/(yN2in*Pmax)); %kmol/hr total nitrogen required
+qmO2=2.78; %mol/kg saturation adsorbed amount O2 (3A, 303K)
+qmN2=2.14; %mol/kg saturation adsorbed amount N2 (3A, 303K)
+qmAr=1.81; %mol/kg saturation adsorbed amount Ar (3A, 303K)
+bO2=2.31e-1; % /bar Langmuir constant 
+bN2=2.51e-1; % /bar Langmuir constant
+bAr=2.79e-1; % /bar Langmuir constant
+Dr2O2=47e-4; % /s D/r^2 for O2
+Dr2N2=2.3e-4; % /s D/r^2 for N2
+Dr2Ar=3.6e-4; % /s D/r^2 for Ar
+ZAir=0.998; %Air compressibility (engineering toolbox)
+ZN2=9.998e-1; %Nitrogen compressibility (air liquide)
+ZO2=9.9924e-1; %Oxygen compressibility factor (air liquide)
+ZAr=9.9925e-1; %Argon compressibility factor (air liquide)
+MwH2O=18.015; %kg/mol molecular weight water
+MwAir=28.9647; %kg/kmol molecular weight air
+
+%ergun equation
+A=150*(mu*(1-e)^2)/((sph*Dp)^2*e^3); %laminar part of Ergun
+B=1.75*(rhof*(1-e))/((sph*Dp)*e^3); %turbulent part of ergun
+C=-(1-e)*(rhop-rhof)*g; %minimum fluidising pressure drop
+vg=(-A+sqrt(A^2-4*B*C))/(2*B); %m/s superficial gas velocity (vmf)
+
+tads=120; %s adsorption time
+
+% inflow and outflow
+Fm=(N2reqpurge/yN2in); %kmol/hr molar flowrate in
+Fmps=1000*Fm/3600; %mol/s
+Fv=(Fm*R*T*1000)/(3600*Pmax); %m3/s volumetric flowrate in
+Fmpurge=(101325*N2req/(yN2in*Pmax))/(1-101325/(Pmax*yN2in)); %kmol/hr purge required with p/f ratio of 1
+Fvpurge=(Fmpurge*R*T*1000)/(101325*3600); %m3/s purge volumetric flowrate
+Fpout=N2reqpurge/yN2out; %kmol/hr molar flowrate out
+Fpoutps=Fpout*1000/3600; %mol/s
+
+
+%adsorption
+P=linspace(0,20,100000);
+qO2=(qmO2.*bO2.*yO2in.*P)./(1.+bO2.*yO2in.*P+bN2.*yN2in.*P+bAr.*yArin.*P); %mol/kg amount of O2 adsorbed 
+qN2=(qmN2.*bN2.*yN2in.*P)./(1.+bO2.*yO2in.*P+bN2.*yN2in.*P+bAr.*yArin.*P); %mol/kg amount of N2 adsorbed
+qAr=(qmAr.*bAr.*yArin.*P)./(1.+bO2.*yO2in.*P+bN2.*yN2in.*P+bAr.*yArin.*P); %mol/kg amount of Ar adsorbed
+
+P8=find(P>=8.01325);
+qO28=qO2(P8(1)); %amount O2 adsorbed at 8bar
+qN28=qN2(P8(1)); %amount N2 adsorbed at 8bar
+qAr8=qAr(P8(1)); %amount Ar adsorbed at 8bar
+
+P1=find(P>=1.01325);
+qO21=qO2(P1(1)); %amount O2 adsorbed at 1atm
+qN21=qN2(P1(1)); %amount N2 adsorbed at 1atm
+qAr1=qAr(P1(1)); %amount Ar adsorbed at 1atm
+
+kO2=15*Dr2O2; % /s LDF rate constant
+kN2=15*Dr2N2; % /s LDF rate constant
+kAr=15*Dr2Ar; % /s LDF rate constant
+
+t=linspace(0,1000,100000);
+rMtO2=(1-exp(-kO2.*t)); %Relative mass O2 adsorbed to equilibrium
+rMtN2=(1-exp(-kN2.*t)); %Relative mass N2 adsorbed to equilibrium 
+rMtAr=(1-exp(-kAr.*t)); %Relative mass Ar adsorbed to equilibrium 
+
+dMtO2=gradient(rMtO2); %rate of change of Mt/Me
+dMt0O2=find(dMtO2==0);
+tdMt0=t(dMt0O2(1)); %time at first value dMt equals 0
+tc=find(t>=120);
+tcycle=dMtO2(tc(1)); %rate of change at cycle time 100, concluded that its pretty much flat
+
+aMtO2=qO21+qO28.*(1-exp(-kO2.*t)); %mol/kg Actual moles O2 adsorbed 
+aMtN2=qN21+qN28.*(1-exp(-kN2.*t)); %mol/kg Actual moles N2 adsorbed 
+aMtAr=qAr1+qAr8.*(1-exp(-kAr.*t)); %mol/kg Actual moles Ar adsorbed 
+
+gO2=gradient(aMtO2);
+O2equilibrium=find(gO2==0);
+O2eqt=t(O2equilibrium(1));
+
+t120=find(t>=120);
+O2ads120=aMtO2(t120(1));
+N2ads120=aMtN2(t120(1));
+Arads120=aMtAr(t120(1));
+
+figure(1)
+plot(t,rMtO2,'b',t,rMtN2,'g',t,rMtAr,'m')
+hold on
+title('Moles Adsorbed Over Time Relative to Equilibrium')
+xlabel('time(s)')
+ylabel('Mt/Me')
+xline(120,'--',{'120s'})
+ylim([0 1.15])
+legend('Oxygen','Nitrogen','Argon')
+hold off
+
+
+figure(2)
+plot(P,qO2,'b',P,qN2,'g',P,qAr,'m')
+hold on 
+title('Moles Adsorbed at Equilibrium at Different Pressures')
+xlabel('Pressure (bar)')
+ylabel('Moles Adsorbed (mol/kg)')
+xline(1.01325,'--',{'1.01325'})
+xline(8.01325,'--',{'8.01325'})
+legend('Oxygen','Nitrogen','Argon')
+hold off
+
+figure(3)
+plot(t,aMtO2,'b',t,aMtN2,'g',t,aMtAr,'m')
+hold on
+title('Moles/kg Adsorbed Over Time')
+xlabel('time(s)')
+ylabel('Moles Adsorbed (mol/kg)')
+xline(120,'--',{'120s'})
+ylim([0 1.5])
+legend('Oxygen','Nitrogen','Argon')
+hold off
+
+%amount adsorbed
+M1=qO21+qN21+qAr1; %total amount adsorbed at 1atm
+M8=qO28+qN28+qAr8; %total amount adsorbed at 8bar
+
+%fraction occupied
+xO21=qO21/M1;
+xN21=qN21/M1;
+xAr=qAr1/M1;
+xO28=qO28/M8;
+xN28=qN28/M8;
+xAr8=qAr8/M8;
+
+%Dont use integrated amount, dont think it is right, and if i didnt use
+%0.7 the mass for O2 would be similar to other examples, but i think mine
+%is more accurate
+%bMassCMS4O2=tads*((Fmps*yO2in)-(Fpoutps*yO2out))/((qO28+qO21)); %kg of CMS reqired to adsorb O2 %should this be aMtO2+qO21 on the bottom???
+%bVolCMS4O2=bMassCMS4O2/576;
+%bMassCMS4N2=bMassCMS4O2*((qN28+qN21)/(qO28+qO21)); %kg of CMS reqired to adsorb N2
+%bVolCMS4N2=bMassCMS4N2/576;
+%bMassCMS4Ar=bMassCMS4O2*((qAr8+qAr1)/(qO28+qO21)); %kg of CMS reqired to adsorb Ar
+%bVolCMS4Ar=bMassCMS4Ar/576;
+
+MassCMS4O2=tads*(((Fmps*yO2in)-(Fpoutps*yO2out))/(0.7*(O2ads120))); %kg of CMS reqired to adsorb O2 %yes
+VolCMS4O2=MassCMS4O2/576;
+MassCMS4N2=MassCMS4O2*((N2ads120)/(O2ads120)); %kg of CMS reqired to adsorb N2
+VolCMS4N2=MassCMS4N2/576;
+MassCMS4Ar=MassCMS4O2*((Arads120)/(O2ads120)); %kg of CMS reqired to adsorb Ar
+VolCMS4Ar=MassCMS4Ar/576;
+
+TotalMassCMS=MassCMS4O2+MassCMS4N2+MassCMS4Ar;
+%bTotalMassCMS=bMassCMS4O2+bMassCMS4N2+bMassCMS4Ar;
+TotalVolumeCMS=VolCMS4O2+VolCMS4N2+VolCMS4Ar;
+%bTotalVolumeCMS=bVolCMS4O2+bVolCMS4N2+bVolCMS4Ar;
+
+VolumeBed=TotalVolumeCMS/0.8;
+%bVolumeBed=bTotalVolumeCMS/0.8;
+%BedDiameterAR321=((4*VolumeBed)/(3*pi()))^(1/3);
+%BedHeightAR321=3*BedDiameterAR321;
+%HBed=VolumeBed/Ab;
+
+%recovery
+adsN2=aMtN2(tc(1))*TotalMassCMS/(120*1000); %kmol/s adsorbed N2 
+adsO2=3600*aMtO2(tc(1))*TotalMassCMS/(120*1000); %kmol/s adsorbed O2 
+adsAr=aMtAr(tc(1))*TotalMassCMS/(120*1000); %kmol/s adsorbed Ar 
+
+bMtO2=(qO21+qO28.*(1-exp(-kO2.*t)))*(MassCMS4O2/1000); %kmol/bed Actual moles O2 adsorbed onto the mass of CMS designated for O2
+bMtN2=(qN21+qN28.*(1-exp(-kN2.*t)))*(MassCMS4N2/1000); %kmol/bed; %mol/kg Actual moles N2 adsorbed onto the mass of CMS designated for N2
+bMtAr=(qAr1+qAr8.*(1-exp(-kAr.*t)))*(MassCMS4Ar/1000); %kmol/bed; %mol/kg Actual moles Ar adsorbed onto the mass of CMS designated for Ar
+
+N2adsorbed=3600*bMtN2(tc(1))/120; %kmol N2 adsorbed per hour
+FI2=(N2reqpurge+N2adsorbed); %kmol/hr flow of nitogen into the process
+FAI2=FI2/yN2in; %kmol/hr total flow of air into the psa
+FAI3=FI2/0.7733;
+MAirinPS=(FAI2*MwAir)/3600; %kg/s
+VAI2stp=(FAI2*R*273.15*1000)/101325;
+VAI2=(FAI2*R*T*1000)/Pmax; %m3/hr volumetric flow in
+R2=100*(N2reqpurge)/FI2; % % recovery
+
+NewPurgeFlow=101325*VAI2/(1000*R*T); %kmol/hr
+
+%considering non fixed bed- these are not the ones ill use
+NFBedArea=(VAI2/3600)/(0.7*vg);
+NFBedHeightCMS=VolumeBed/NFBedArea;
+NFPackingVolume=0.25*VolumeBed;
+
+NF2BedDiameter=(4*NFBedArea/pi())^0.5;
+
+%Sensitivity
+h=linspace(0,1,10000);
+velocity=vg.*h;
+velocity100=vg.*h.*100./vg;
+BedArea100=(VAI2/3600)./(velocity100.*vg./100);
+BedArea=(VAI2/3600)./(velocity);
+BedHeightCMS=VolumeBed./BedArea; %this is actually the total height
+BedDiameter=(4.*BedArea./pi()).^0.5;
+AspectRatio=BedHeightCMS./BedDiameter;
+AR=find(AspectRatio>=3);
+AR3=AR(1);
+AR3BedArea=(VAI2/3600)./(velocity(AR3));
+AR3BedHeightCMS=0.8*VolumeBed/AR3BedArea;
+AR3BedDiameter=(4*AR3BedArea/pi())^0.5;
+AR3vg=(VAI2/3600)/AR3BedArea;
+PercentVgfluidising=100*AR3vg/vg;
+AR3BedHeightTotal=VolumeBed/AR3BedArea;
+AR3PackingVol=0.25*VolumeBed/AR3BedArea;
+AR3PackingHeight=(AR3BedHeightTotal-AR3BedHeightCMS)/2;
+
+PAckingMass=AR3PackingVol*125; %kg
+
+figure(5)
+plot(velocity100,BedArea100,'m')
+hold on
+title('Bed Area vs Fluidising Velocity')
+xlabel('% of Fluidising Velocity')
+ylabel('Area (m^2)')
+ylim([0 50])
+xline(PercentVgfluidising,'--')
+yline(AR3BedArea,'--')
+hold off
+
+figure(6)
+plot(BedArea,AspectRatio,'m',BedArea,BedHeightCMS,'b',BedArea,BedDiameter,'g')
+hold on
+title('Aspect Ratio vs Area')
+xlabel('Area (m^2)')
+ylabel('Height and Diameter (m)')
+ylim([0 6])
+xlim([0 20])
+yline(3,'--')
+xline(AR3BedArea,'--')
+legend('Aspect Ratio','Bed Height','Bed Diameter')
+hold off
+
+figure(4)
+plot(t,bMtO2,'b',t,bMtN2,'g',t,bMtAr,'m')
+hold on
+title('Moles Adsorbed by Entire Bed Over Time')
+xlabel('time(s)')
+ylabel('Moles Adsorbed (kmol/bed)')
+xline(120,'--',{'120s'})
+legend('Oxygen','Nitrogen','Argon')
+hold off
+
+
+PdBed=AR3BedHeightTotal*((150*mu*AR3vg*(1-e)^2)/((Dp*sph)^2*e^3)+(1.75*rhof*((AR3vg)^2)*(1-e))/(Dp*sph*e^3))/100000; %bar pressure drop along bed
+%% Compressors
+
+R=8.3145;
+Tinlet=273.15+9; %K
+CpAir=1.004; %kJ/kg.K heat capacity of air
+CvAir=0.717; %kJ/kg.K heat capacity of air
+gamma=CpAir/CvAir;
+Lp1=101325;
+HpF=(801325-0.1*101325+51.951638261499085*100)/0.9;
+%max differential pressure= 3.5bar, so Hp/Lp cannot exceed this
+
+IntStgP=(Lp1*HpF)^0.5;
+
+%compressor 1
+
+Hp1=IntStgP;
+Qv1=(FAI2*1000*R*Tinlet)/(Lp1);
+Ep1=0.61+0.03*log(0.5885*Qv1);
+m1=(gamma-1)/(gamma*Ep1);
+n1=1/(1-m1);
+polyW1=((ZAir*R*Tinlet)/MwAir)*(n1/(n1-1))*(((Hp1/Lp1)^((n1-1)/n1))-1); %kJ/kg
+actualW1=polyW1/Ep1; %kJ/kg
+TotalW1=actualW1*MAirinPS; %kW
+Tout1=Tinlet*(Hp1/Lp1)^m1; %K
+PR1=Hp1/Lp1; %pressure ratio
+%compressor 2
+T2=T;
+
+Lp2=IntStgP-0.1*(IntStgP-101325);
+Hp2=HpF;
+Qv2=(FAI2*1000*R*T2)/(Lp2);
+Ep2=0.61+0.03*log(0.5885*Qv2);
+m2=(gamma-1)/(gamma*Ep2);
+n2=1/(1-m2);
+polyW2=((ZAir*R*T2)/MwAir)*(n2/(n2-1))*((Hp2/Lp2)^((n2-1)/n2)-1);
+actualW2=polyW2/Ep2; %kJ/kg
+TotalW2=actualW2*MAirinPS; %kW
+Tout2=T2*(Hp2/Lp2)^m2;
+PR2=Hp2/Lp2; %pressure ratio
+
+AnnualW1=TotalW1*8000/1000;
+AnnualW2=TotalW2*8000/1000;
+%For Heat exchanger
+MAirIn=FAI2*MwAir; %kg/hr
+MH2Oin=0.006*MAirIn; %kg/hr
+MolesH2Oin=MH2Oin/18.015; %KMOL/HR
+MoleFracN2InW=(yN2in*FAI2)/(FAI2+MolesH2Oin); %wet air mole fraction of N2
+MoleFracO2InW=(yO2in*FAI2)/(FAI2+MolesH2Oin); %wet air mole fraction of O2
+MoleFracArInW=(yArin*FAI2)/(FAI2+MolesH2Oin); %wet air mole fraction of Ar
+MoleFracH2OInW=(MolesH2Oin)/(FAI2+MolesH2Oin); %wet air mole fraction of H2O
+FlowWetAirIn=FI2/MoleFracN2InW; %kmol/hr of wet gas enetring the process
+SUMyWET=MoleFracN2InW+MoleFracO2InW+MoleFracArInW+MoleFracH2OInW;
+
+%heat exchanger 1
+TC1=284.15; %K cold inlet temp
+TH1=Tout1;
+TH2=303.15;
+MAirinPS=MAirIn/3600; %kg/s
+Cp446=1.02303; %kJ/kg.K
+Cp303=1.005; %kJ/kg.K
+Cpw=4.18; %kJ/kg.K
+Cpav=(Cp446+Cp303)/2;
+QdotH=MAirinPS*Cpav*(TH1-TH2)*0+135.199; %kJ/s
+Mc=QdotH/(Cpw*(372-TC1)); %kg/s
+TC2=(TC1+QdotH/(Mc*Cpw))*0+348.878; %5 is arbitrary, not sure how much cooling water ill have
+
+Tlm1=(TH1-TC2-(TH2-TC1))/(log((TH1-TC2)/(TH2-TC1)));
+HtTsfA1=QdotH/(0.129329*48.1904+0*Tlm1); %m2 heat transfer area
+
+%heat exchanger 2
+TC12=284.15; %K cold inlet temp
+TH12=Tout2;
+TH22=303.15;
+MAirinPS2=MAirIn/3600; %kg/s
+Cp4462=1.02303; %kJ/kg.K
+Cp3032=1.005; %kJ/kg.K
+Cpw2=4.18; %kJ/kg.K
+Cpav2=(Cp4462+Cp3032)/2;
+QdotH2=MAirinPS2*Cpav2*(TH12-TH22); %kJ/s
+Mc2=QdotH2/(Cpw2*(372-TC12)); %kg/s
+TC22=TC12+QdotH2/(Mc2*Cpw2); %5 is arbitrary, not sure how much cooling water ill have
+
+Tlm12=(TH12-TC22-(TH22-TC12))/(log((TH12-TC22)/(TH22-TC12)));
+HtTsfA12=1000*QdotH2/(19.32*Tlm12); %m2 heat transfer area
+
+CoolingWater=99.92*MwH2O/rhow; %from aspen cooling water req, m3/hr
+
+%% Removal of Water
+vSettling=0.07*((rhow-rhof)/rhof)^0.5;
+DiameterDMSTR=((4*VAI2/3600)/(pi()*vSettling))^0.5;
+LiquidHoldup=(MH2Oin/(3600*rhow))*60*60;
+LiquidHeight=LiquidHoldup/(0.25*pi()*DiameterDMSTR^2);
+HeightDMSTRshort=0.4+DiameterDMSTR*(1+0.5)+LiquidHeight; %nnot tall enough
+HeightDMSTR=0.4+1+0.6+LiquidHeight;
+VolumeDMSTR=(0.25*pi()*DiameterDMSTR^2)*HeightDMSTR;
+vsf=VAI2/(3600*0.25*pi()*DiameterDMSTR^2); %m/s superficial velocity in DMSTR
+AreaDMSTR=0.25*pi()*DiameterDMSTR^2;
+
+%% cyclone 1
+Dc1=203e-3; %m
+Dc2=((VAI2/3600)/(15*0.2*0.5))^0.5; %m
+Q1=223; %m3/hr
+Q2=VAI2; %m3/hr
+drho1=2000; %kg/m3
+drho2=1650; %kg/m3
+mu1=0.018e-3; %Pas
+mu2=mu; %Pas
+
+ScalingFactor=((Dc2/Dc1)^3*(Q1/Q2)*(drho1/drho2)*(mu2/mu1))^0.5;
+
+%for pressure drop
+A1=0.5*(Dc2^2)*0.2; %m2 area of inlet
+SAc=pi()*Dc2*(1.5*Dc2+2.5*Dc2); %m2 surface ara inside cyclone
+fc=0.005;
+trident=(fc*SAc)/(A1);
+rtoverre=(Dc2-(0.2*Dc2)/2)/(Dc2/2);
+u1=(VAI2/3600)/A1;
+Aexit=0.25*pi()*(Dc2/2)^2;
+u2=(VAI2/3600)/Aexit;
+PressureDropCyclone=(rhof/203)*((u1^2)*(1+2*(0.9^2)*(2*rtoverre-1))+2*u2^2); %millibars
+% dimensions
+ca=Dc2*0.5;
+cb=Dc2*0.2;
+cc=Dc2*1.5;
+cd=Dc2*2.5;
+ce=Dc2*0.375;
+cf=Dc2;
+
+%% for stream table
+inN2=FAI2*yN2in;
+inO2=FAI2*yO2in;
+inAr=FAI2*yArin;
+inH2O=MolesH2Oin;
+pAFTERhe=HpF-0.1*(HpF-101325);
+P2PSA=pAFTERhe-PressureDropCyclone*100;
+PressAfterBed=P2PSA-PdBed*100000;
+PurgeN2=Fmpurge*yN2out; %kmol/hr
+PurgeO2=Fmpurge*yO2out; %kmol/hr
+PurgeAr=Fmpurge*yArout; %kmol/hr
+FromPSAN2=Fpout*yN2out; %kmol/hr
+FromPSAO2=Fpout*yO2out; %kmol/hr
+FromPSAAr=Fpout*yArout; %kmol/hr
+CWflowrate1=Mc*3600/MwH2O; %kmol/hr
+CWflowrate2=Mc2*3600/MwH2O; %kmol/hr
+PressWaterOutDMSTR=P2PSA*((((P2PSA*MwH2O)/(R*T*1000))/rhow)^0.5)/100000; %Bar
+PressOut=PressAfterBed-PressureDropCyclone*100;
+MassSolidsOut=VAI2*(13+6)/1e6; %kg/hr
+molefracN2ProductArO2=FromPSAN2/(FromPSAN2+FromPSAO2+FromPSAAr);
+molefracN2ProductO2=FromPSAN2/(FromPSAN2+FromPSAO2);
+%% materials
+Pdesign1=1.1*pAFTERhe;
+Pdesign2=1.1*P2PSA; %design pressure for V-501 and R-501,2
+Pdesign3=1.1*PressAfterBed;
+Pdesign1g=1.1*(pAFTERhe-101325);
+Pdesign2g=1.1*(P2PSA-101325); %design pressure for V-501 and R-501,2
+Pdesign3g=1.1*(PressAfterBed-101325);
+S1=137e6;
+E=1;
+rhoss304=7930; %kg/m3
+rhoss316=7980; %kg/m3
+rhoAl=2710; %kg/m3
+
+thCylDMSTR1=Pdesign1g*DiameterDMSTR/(2*S1*E-1.2*Pdesign1); %these are not thick enough
+thCylPSA1=Pdesign2g*AR3BedDiameter/(2*S1*E-1.2*Pdesign2);
+thCylT5021=Pdesign3g*AR3BedDiameter/(2*S1*E-1.2*Pdesign3);
+
+thCylDMSTR2=0.006;
+thCylPSA2=0.008;
+thCylT5022=0.008;
+
+oD1=DiameterDMSTR+2*thCylDMSTR2;
+oD2=AR3BedDiameter+2*thCylPSA2;
+oD3=AR3BedDiameter+2*thCylT5022;
+
+thToris1=(0.885*Pdesign1g*oD1)/(S1*E-0.1*Pdesign1g);
+thToris2=(0.885*Pdesign2g*oD2)/(S1*E-0.1*Pdesign2g);
+thToris3=(0.885*Pdesign3g*oD3)/(S1*E-0.1*Pdesign3g);
+
+ShellMass1=pi()*DiameterDMSTR*HeightDMSTR*thCylDMSTR2*rhoss316;
+ShellMass2=pi()*AR3BedDiameter*AR3BedHeightTotal*thCylPSA2*rhoss304;
+ShellMass3=pi()*AR3BedDiameter*HeightDMSTR*thCylPSA2*rhoss304;
+
+CycloneMass=SAc*0.005*rhoAl;
+
+%% Costing
+
+CostPacking=PAckingMass*0.8241*((1200-500)/2)/1000; %£
+CostCMS=2*TotalMassCMS*0.8241/0.453592; %cost in £ of CMS
+%1=compressor1 11=compressor2 2=demister 3=psa 4=buffer tanks 5=HE1 55=HE2
+%6=cyclone
+
+% Ce=a+bS^n
+
+%equipment cost, 2007, $
+Ce1=220000+2300*TotalW1^0.75;
+Ce11=220000+2300*TotalW2^0.75;
+Ce2=15000+68*ShellMass1^0.85;
+Ce3=15000+68*ShellMass2^0.85;
+Ce4=15000+68*ShellMass3^0.85;
+Ce5=1600+2100*11.21^1;
+Ce55=1600+2100*13.12^1;
+Ce6=CycloneMass*2.2865; 
+
+TotalCe=(Ce1+Ce11+Ce2+2*Ce3+2*Ce4+Ce5+Ce55)*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3); %total equipment cost dollars
+TotalCfcDUK=TotalCe*1.82*1.02; %Total fixed capital cost dollars, UK 2007 (what is 1.82? its for contingency etc)
+TotalwInflationD=TotalCfcDUK*1.45;
+TotalFinalCostUK=TotalwInflationD*0.8241;
+
+% 1.45=inflation, 0.8241=exchange rate, 1.82=osbl factor, 1.02=location
+% factor
+
+%equipment cost, 2023, £ purchase
+Ce1p=(220000+2300*TotalW1^0.75)*1.45*0.8241*1.02;
+Ce11p=(220000+2300*TotalW2^0.75)*1.45*0.8241*1.02;
+Ce2p=(15000+68*ShellMass1^0.85)*1.45*0.8241*1.02;
+Ce3p=(15000+68*ShellMass2^0.85)*1.45*0.8241*1.02;
+Ce4p=(15000+68*ShellMass3^0.85)*1.45*0.8241*1.02;
+Ce5p=(1600+2100*11.21^1)*1.45*0.8241*1.02;
+Ce55p=(1600+2100*13.12^1)*1.45*0.8241*1.02;
+
+
+
+%equipment cost, 2023, £ isbl
+iCe1pi=(220000+2300*TotalW1^0.75)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe11pi=(220000+2300*TotalW2^0.75)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe2pi=(15000+68*ShellMass1^0.85)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe3pi=(15000+68*ShellMass2^0.85)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe4pi=(15000+68*ShellMass3^0.85)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe5pi=(1600+2100*11.21^1)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCe55pi=(1600+2100*13.12^1)*1.45*0.8241*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+iCeCMS=CostCMS;
+iCePacking=CostPacking;
+
+%equipment cost, 2023, £ total
+tCe1pi=(220000+2300*TotalW1^0.75)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe11pi=(220000+2300*TotalW2^0.75)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe2pi=(15000+68*ShellMass1^0.85)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe3pi=(15000+68*ShellMass2^0.85)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe4pi=(15000+68*ShellMass3^0.85)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe5pi=(1600+2100*11.21^1)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCe55pi=(1600+2100*13.12^1)*1.45*0.8241*1.82*1.02*((1+0.8)+(0.3+0.2+0.3+0.3+0.2+0.1)/1.3);
+tCeCMS=CostCMS*1.82;
+tCePacking=CostPacking*1.82;
+
+%equipment cost, 2023, £ osbl
+oCe1pi=tCe1pi-iCe1pi;
+oCe11pi=tCe11pi-iCe11pi;
+oCe2pi=tCe2pi-iCe2pi;
+oCe3pi=tCe3pi-iCe3pi;
+oCe4pi=tCe4pi-iCe4pi;
+oCe5pi=tCe5pi-iCe5pi;
+oCe55pi=tCe55pi-iCe55pi;
+oCeCMS=tCeCMS-iCeCMS;
+oCePacking=tCePacking-iCePacking;
+
+
+%Electical costs
+C501Ech=(TotalW1/1000)*49.28; %£/hr
+C502Ech=(TotalW2/1000)*49.28; %£/hr
+C501Ecy=C501Ech*8000; %£/yr
+C502Ecy=C502Ech*8000; %£/yr
+
+%water cost
+CoolingWaterEnergyh=(2/1000)*(1/0.00378541)*CoolingWater; %hourly
+CoolingWaterEnergya=CoolingWaterEnergyh*8000/1000; %annual
+CoolingWaterCosth=CoolingWaterEnergyh*49.28/1000; %hourly
+CoolingWaterCosta=CoolingWaterCosth*8000; %annual
